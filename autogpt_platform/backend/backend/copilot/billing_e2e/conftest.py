@@ -20,3 +20,16 @@ def ledger(monkeypatch: pytest.MonkeyPatch) -> PlatformLedger:
     ledger = PlatformLedger()
     ledger.install(monkeypatch)
     return ledger
+
+
+@pytest.fixture(autouse=True)
+def _no_memory(mocker):
+    """No billing turn reads or writes Graphiti memory. A turn's memory write
+    otherwise starts a background ingestion worker whose LLM calls fail
+    without credentials, and the test waits out the worker's idle timeout
+    (``graphiti.ingest._WORKER_IDLE_TIMEOUT``, 60 s) on Python 3.11."""
+    for module in ("backend.copilot.sdk.service", "backend.copilot.baseline.service"):
+        mocker.patch(f"{module}.enqueue_conversation_turn", new=mocker.AsyncMock())
+        mocker.patch(
+            f"{module}.fetch_warm_context", new=mocker.AsyncMock(return_value="")
+        )
