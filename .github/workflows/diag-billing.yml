@@ -1,5 +1,5 @@
 name: Diag billing_e2e py3.11 stall (services)
-# fork-only diagnostic (agarg21/ci-agent): upstream copilot test job with services, only billing_e2e sdk-openrouter cases, DEBUG logs
+# fork-only diagnostic (agarg21/ci-agent): upstream copilot test job with services, full copilot shard, INFO log file + junit (diag 3)
 on:
   workflow_dispatch:
 defaults:
@@ -15,7 +15,7 @@ jobs:
     # groups run on separate standard runners. The cap is a hang guard, not a
     # performance budget: on merge_group a cancelled job reads as a failed
     # check and ejects the PR from the queue, so keep it well above p99.
-    timeout-minutes: 30
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -385,19 +385,23 @@ jobs:
             pytest_args+=(-q)
           fi
 
-          # fork-only diag: only the slow billing_e2e cases, with DEBUG logs and stack dumps
-          poetry run pytest -c pyproject.toml backend/copilot/billing_e2e -p no:cacheprovider \
-            -o faulthandler_timeout=20 --durations=30 -rA -vv -s \
-            -o log_cli=true -o log_cli_level=DEBUG \
-            -o log_cli_format="%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(message)s" \
-            -k "sdk-openrouter and thread_billing" 2>&1 | tee billing-diag.log || true
+          # fork-only diag 3: the full upstream copilot shard (same command as upstream),
+          # INFO logs with ms timestamps to a file, durations + junit, to see the py3.11 stall in context
+          python ../../.github/scripts/backend_test_shard.py "$TEST_SHARD" -- \
+            -p no:cacheprovider --junitxml="junit-${TEST_SHARD}.xml" -q --durations=40 \
+            -o log_file=billing-diag.log -o log_file_level=INFO \
+            -o log_file_format="%(asctime)s.%(msecs)03d %(name)s %(levelname)s %(message)s" \
+            2>&1 | tee pytest-out.log || true
 
       - name: Upload diag log
         if: ${{ always() }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: billing-diag-py${{ matrix.python-version }}
-          path: autogpt_platform/backend/billing-diag.log
+          path: |
+            autogpt_platform/backend/billing-diag.log
+            autogpt_platform/backend/pytest-out.log
+            autogpt_platform/backend/junit-*.xml
 
     env:
       CI: true
